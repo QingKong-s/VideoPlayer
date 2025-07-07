@@ -9,11 +9,21 @@
 #include "d3d11_1.h"
 
 EXTERN_C_START
+#pragma warning(push)
+#pragma warning(disable: 4819)// 该文件包含不能在当前代码页(936)中表示的字符
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/avutil.h>
 #include <libswscale/swscale.h>
+#pragma warning(pop)
 EXTERN_C_END
+
+#include <mmdeviceapi.h>
+#include <Audioclient.h>
+
+const inline IID IID_IAudioClient = __uuidof(IAudioClient);
+const inline IID IID_IAudioRenderClient = __uuidof(IAudioRenderClient);
+const inline CLSID CLSID_MMDeviceEnumerator = __uuidof(MMDeviceEnumerator);
 
 using eck::PCVOID;
 using eck::PCBYTE;

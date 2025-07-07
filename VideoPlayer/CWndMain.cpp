@@ -16,6 +16,7 @@ struct VSOut
 	float4 pos : SV_POSITION;
 	float2 tex : TEXCOORD0;
 };
+
 VSOut main(float4 pos : POSITION, float2 tex : TEXCOORD0)
 {
 	VSOut r;
@@ -29,9 +30,10 @@ constexpr std::string_view PSBlt
 { R"___(
 Texture2D<float> gTexY : register(t0);
 Texture2D<float2> gTexUV : register(t1);
-SamplerState gSampler : register(s0);
+SamplerState gSamplerY : register(s0);
+SamplerState gSamplerUV : register(s1);
 
-static const float3x3 YUVtoRGBCoeffMatrix =
+static const float3x3 MatYuvToRgb =
 {
 	1.164383f, 1.164383f, 1.164383f,
 	0.000000f, -0.391762f, 2.017232f,
@@ -44,7 +46,7 @@ struct PSIn
 	float2 uvPos : TEXCOORD0;
 };
 
-float3 ConvertYUVtoRGB(float3 yuv)
+float3 YuvToRgb(float3 yuv)
 {
 	yuv -= float3(0.062745f, 0.501960f, 0.501960f);
 	yuv = mul(yuv, YUVtoRGBCoeffMatrix);
@@ -54,10 +56,9 @@ float3 ConvertYUVtoRGB(float3 yuv)
 
 float4 main(PSIn input) : SV_TARGET
 {
-	//return float4(1, 0, 1, 1);
-	float y = gTexY.Sample(gSampler, input.uvPos);
-	float2 uv = gTexUV.Sample(gSampler, input.uvPos);
-	float3 rgb = ConvertYUVtoRGB(float3(y, uv));
+	float y = gTexY.Sample(gSamplerY, input.uvPos);
+	float2 uv = gTexUV.Sample(gSamplerUV, input.uvPos);
+	float3 rgb = YuvToRgb(float3(y, uv));
 	return float4(rgb, 1);
 }
 )___" };
@@ -90,7 +91,7 @@ LRESULT CWndMain::OnCreate()
 
 	for (auto e : Test)
 		PlAdd(e);
-	Play(5);
+	Play(6);
 
 	m_RootElem.Create(nullptr, Dui::DES_VISIBLE, 0,
 		0, 0, 0, 0, nullptr, this);
@@ -103,17 +104,23 @@ LRESULT CWndMain::OnCreate()
 
 void CWndMain::UpdateSampler()
 {
-	constexpr float BorderColor[]{ 0.f,0.f,1.f,1.f };
-	constexpr auto Address = D3D11_TEXTURE_ADDRESS_BORDER;
-	m_Sampler.Create(D3D11_FILTER_MIN_MAG_MIP_LINEAR, Address,
-		Address, Address, D3D11_COMPARISON_NEVER, BorderColor);
+	D3D11_SAMPLER_DESC Desc{};
+	Desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+	Desc.AddressU = Desc.AddressV = Desc.AddressW = D3D11_TEXTURE_ADDRESS_BORDER;
+	Desc.MaxAnisotropy = 1;
+	Desc.MaxLOD = FLT_MAX;
+	Desc.MinLOD = -FLT_MAX;
+	Desc.BorderColor[0] = 0.0627f;
+	m_pDevice->CreateSamplerState(&Desc, &m_pSamplerY);
+	Desc.BorderColor[0] = Desc.BorderColor[1] = 0.5020f;
+	m_pDevice->CreateSamplerState(&Desc, &m_pSamplerUV);
 }
 
 void CWndMain::UpdateTexture(const AVFrame* pFrame)
 {
 	D3D11_TEXTURE2D_DESC Desc{};
 	((ID3D11Texture2D*)pFrame->data[0])->GetDesc(&Desc);
-	
+
 	m_Texture.Create(Desc.Width, Desc.Height, Desc.Format,
 		D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, D3D11_RESOURCE_MISC_SHARED);
 	ComPtr<IDXGIResource> pDxgiRes;
@@ -130,9 +137,9 @@ void CWndMain::UpdateTexture(const AVFrame* pFrame)
 	size_t idxFmt;
 	switch (m_Player.GetVideoCodecCtx()->sw_pix_fmt)
 	{
-	case AV_PIX_FMT_YUV420P: idxFmt = 0; break;
-	case AV_PIX_FMT_YUV420P10LE: idxFmt = 1; break;
-	case AV_PIX_FMT_YUV444P10LE: idxFmt = 2; break;
+	case AV_PIX_FMT_YUV420P:		idxFmt = 0; break;
+	case AV_PIX_FMT_YUV420P10LE:	idxFmt = 1; break;
+	case AV_PIX_FMT_YUV444P10LE:	idxFmt = 2; break;
 	default: return;
 	}
 	m_SrvY.Create(m_Texture.Get(), YFormat[idxFmt]);
@@ -184,6 +191,7 @@ void CWndMain::Play(int idx)
 {
 	Stop();
 	m_Player.OpenFile(m_vPlayList[idx].rsPathU8.Data());
+	m_Player.AudioStart();
 	//m_Player.Seek(100 * AV_TIME_BASE);
 	//m_Player.Seek(0);
 
@@ -270,8 +278,8 @@ LRESULT CWndMain::OnRenderEvent(UINT uMsg, Dui::RENDER_EVENT& e)
 		Rtv.Create(pDstTex.Get());
 
 		m_pContext->OMSetRenderTargets(1, &Rtv.pRtv, nullptr);
-		constexpr float ClearColor[]{ 0.f,1.f,0.f,1.f };
-		m_pContext->ClearRenderTargetView(Rtv.Get(), ClearColor);
+		constexpr float ClearColor[4]{};
+		//m_pContext->ClearRenderTargetView(Rtv.Get(), ClearColor);
 		m_pContext->RSSetViewports(1, &Viewport);
 
 		m_pContext->IASetInputLayout(m_VSAndIL.GetInputLayout());
@@ -305,7 +313,7 @@ LRESULT CWndMain::OnRenderEvent(UINT uMsg, Dui::RENDER_EVENT& e)
 		m_pContext->VSSetShader(m_VSAndIL.GetShader(), nullptr, 0);
 
 		m_pContext->PSSetShader(m_PS.Get(), nullptr, 0);
-		m_pContext->PSSetSamplers(0, 1, &m_Sampler.pSampler);
+		m_pContext->PSSetSamplers(0, 2, &m_pSamplerY);
 		ID3D11ShaderResourceView* const pSrv[]{ m_SrvY.Get(), m_SrvUV.Get() };
 		m_pContext->PSSetShaderResources(0, ARRAYSIZE(pSrv), pSrv);
 
@@ -340,22 +348,38 @@ void CWndMain::Tick(int iMs)
 
 	while (m_msCount >= fFrameInterval)
 	{
-		m_msCount -= (int)fFrameInterval;
-
-		int r = m_Player.ReadFrame(m_RfData);
-
-		m_TB.SetTrackPos(m_Player.GetPts(m_RfData));
-
-		const auto pTex = (ID3D11Texture2D*)m_RfData.pFrame->data[0];
-		if (!m_Texture.Get())
+		const int r = m_Player.ReadFrame(m_RfData);
+#ifdef _DEBUG
+		char szErrStr[128];
+		if (r < 0)
 		{
-			UpdateTexture(m_RfData.pFrame);
-			UpdateSampler();
+			av_strerror(r, szErrStr, sizeof(szErrStr));
+			OutputDebugStringA(szErrStr);
+			OutputDebugStringW(L"\n");
+			DebugBreak();
 		}
-		CopyTexture(pTex, PtrToUint(m_RfData.pFrame->data[1]));
-		Redraw();
-		m_RfData.UnRef();
-		++m_cFramePresented;
+#endif// _DEBUG
+		m_TB.SetTrackPos(m_Player.GetPts(m_RfData));
+		switch (m_RfData.eType)
+		{
+		case AVMEDIA_TYPE_VIDEO:
+		{
+			m_msCount -= (int)fFrameInterval;
+			const auto pTex = (ID3D11Texture2D*)m_RfData.pFrame->data[0];
+			if (!m_Texture.Get())
+			{
+				UpdateTexture(m_RfData.pFrame);
+				UpdateSampler();
+			}
+			CopyTexture(pTex, PtrToUint(m_RfData.pFrame->data[1]));
+			Redraw();
+			++m_cFramePresented;
+		}
 		break;
+		case AVMEDIA_TYPE_AUDIO:
+			m_Player.AudioWriteFrame(m_RfData.pFrame);
+			break;
+		}
+		m_RfData.UnRef();
 	}
 }

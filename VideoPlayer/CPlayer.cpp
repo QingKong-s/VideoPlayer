@@ -2,6 +2,56 @@
 #include "CPlayer.h"
 
 
+void CPlayer::InitCoreAudio() noexcept
+{
+	m_pAudioDeviceEnum.CreateInstance(CLSID_MMDeviceEnumerator);
+	m_pAudioDeviceEnum->GetDefaultAudioEndpoint(
+		eRender, eMultimedia, m_pAudioDevice.AddrOfClear());
+	m_pAudioDevice->Activate(IID_IAudioClient, CLSCTX_ALL,
+		nullptr, (void**)m_pAudioClient.AddrOfClear());
+
+	WAVEFORMATEX* pwfx;
+	m_pAudioClient->GetMixFormat(&pwfx);
+
+	pwfx->nSamplesPerSec = m_pAudioCodecCtx->sample_rate;
+	pwfx->nChannels = m_cAudioChannels;
+	pwfx->nAvgBytesPerSec = pwfx->nSamplesPerSec *
+		pwfx->nChannels * pwfx->wBitsPerSample / 8;
+	pwfx->wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+
+	m_pAudioClient->Initialize(AUDCLNT_SHAREMODE_SHARED,
+		AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+		1000 * 10000/* 1秒 */, 0, pwfx, nullptr);
+	m_pAudioClient->GetBufferSize(&m_cAudioBuffer);
+	m_pAudioClient->GetService(IID_IAudioRenderClient,
+		(void**)m_pAudioRenderClient.AddrOfClear());
+
+	CoTaskMemFree(pwfx);
+}
+
+float* CPlayer::AudioGetBuffer(_Inout_ UINT32& cRequested) noexcept
+{
+	UINT32 cPadding;
+	m_pAudioClient->GetBufferSize(&m_cAudioBuffer);
+	m_pAudioClient->GetCurrentPadding(&cPadding);
+	if (cRequested > m_cAudioBuffer - cPadding)
+	{
+		m_pAudioClient->Stop();
+		m_pAudioClient->Reset();
+		m_pAudioClient->Start();
+		if (cRequested > m_cAudioBuffer)
+			cRequested = m_cAudioBuffer;
+	}
+	BYTE* pBuffer;
+	auto hr = m_pAudioRenderClient->GetBuffer(cRequested, &pBuffer);
+	return (float*)pBuffer;
+}
+
+void CPlayer::AudioReleaseBuffer(UINT32 cWritten) noexcept
+{
+	m_pAudioRenderClient->ReleaseBuffer(cWritten, 0);
+}
+
 int CPlayer::OpenFile(PCSTR pszPathU8) noexcept
 {
 	int r;
@@ -10,7 +60,7 @@ int CPlayer::OpenFile(PCSTR pszPathU8) noexcept
 	if (r = avformat_find_stream_info(m_pFmtCtx, nullptr))
 		return r;
 	m_pVideoStream = nullptr;
-	int cAudio{};
+	m_pAudioStream = nullptr;
 	EckCounter(m_pFmtCtx->nb_streams, i)
 	{
 		const auto pStream = m_pFmtCtx->streams[i];
@@ -19,6 +69,8 @@ int CPlayer::OpenFile(PCSTR pszPathU8) noexcept
 		{
 		case AVMEDIA_TYPE_VIDEO:
 		{
+			if (m_pVideoStream)
+				break;
 			m_pVideoStream = pStream;
 			pCodec = avcodec_find_decoder(pStream->codecpar->codec_id);
 			if (m_pVideoCodecCtx)
@@ -44,25 +96,25 @@ int CPlayer::OpenFile(PCSTR pszPathU8) noexcept
 		break;
 		case AVMEDIA_TYPE_AUDIO:
 		{
-			if (cAudio == MaxAudioCount)
+			if (m_pAudioStream)
 				break;
-			const auto j = cAudio++;
-			m_pAudioStream[j] = pStream;
+			m_pAudioStream = pStream;
 			pCodec = avcodec_find_decoder(pStream->codecpar->codec_id);
 			// 创建解码上下文
-			if (m_pAudioCodecCtx[j])
-				avcodec_free_context(&m_pAudioCodecCtx[j]);
-			m_pAudioCodecCtx[j] = avcodec_alloc_context3(pCodec);
-			if (!m_pAudioCodecCtx[j])
+			if (m_pAudioCodecCtx)
+				avcodec_free_context(&m_pAudioCodecCtx);
+			m_pAudioCodecCtx = avcodec_alloc_context3(pCodec);
+			if (!m_pAudioCodecCtx)
 				return AVERROR(ENOMEM);
-			avcodec_parameters_to_context(m_pAudioCodecCtx[j], pStream->codecpar);
+			avcodec_parameters_to_context(m_pAudioCodecCtx, pStream->codecpar);
 			// 打开解码器
-			if (r = avcodec_open2(m_pAudioCodecCtx[j], pCodec, nullptr))
+			if (r = avcodec_open2(m_pAudioCodecCtx, pCodec, nullptr))
 				return r;
 		}
 		break;
 		}
 	}
+	InitCoreAudio();
 	return 0;
 }
 
@@ -72,49 +124,49 @@ int CPlayer::ReadFrame(_Inout_ RfData& d) noexcept
 		d.pPacket = av_packet_alloc();
 	if (!d.pFrame)
 		d.pFrame = av_frame_alloc();
-
-	int ret = 0;
-
-	while (true)
+	int r;
+	EckLoop()
 	{
-		// 尝试从解码器取 frame
-		ret = avcodec_receive_frame(m_pVideoCodecCtx, d.pFrame);
-		if (ret == 0) {
+		r = avcodec_receive_frame(m_pVideoCodecCtx, d.pFrame);
+		if (r == 0)
+		{
 			d.eType = AVMEDIA_TYPE_VIDEO;
-			av_packet_unref(d.pPacket);  // 清理 packet
-			return 0;  // 解码成功
+			av_packet_unref(d.pPacket);
+			return 0;// 解码视频成功
 		}
-		else if (ret != AVERROR(EAGAIN)) {
-			av_packet_unref(d.pPacket);  // 解码器出错
-			return ret;
+		r = avcodec_receive_frame(m_pAudioCodecCtx, d.pFrame);
+		if (r == 0)
+		{
+			d.eType = AVMEDIA_TYPE_AUDIO;
+			av_packet_unref(d.pPacket);
+			return 0;// 解码音频成功
 		}
-
-		// receive_frame 没有 frame，读 packet
-		ret = av_read_frame(m_pFmtCtx, d.pPacket);
-		if (ret != 0) {
-			// 文件读完时，发送 NULL packet flush 解码器
+		r = av_read_frame(m_pFmtCtx, d.pPacket);
+		if (r != 0)
+		{
 			avcodec_send_packet(m_pVideoCodecCtx, nullptr);
-			continue;  // 再次尝试 receive_frame
+			avcodec_send_packet(m_pAudioCodecCtx, nullptr);
+			continue;
 		}
 
-		if (d.pPacket->stream_index != m_pVideoStream->index) {
-			// 其他流直接忽略
+		AVCodecContext* pCurrCodecCtx;
+		if (d.pPacket->stream_index == m_pVideoStream->index)
+			pCurrCodecCtx = m_pVideoCodecCtx;
+		else if (d.pPacket->stream_index == m_pAudioStream->index)
+			pCurrCodecCtx = m_pAudioCodecCtx;
+		else
+		{
 			av_packet_unref(d.pPacket);
 			continue;
 		}
 
-		// 送 packet 给解码器
-		ret = avcodec_send_packet(m_pVideoCodecCtx, d.pPacket);
-		av_packet_unref(d.pPacket);  // 送完就可释放
+		r = avcodec_send_packet(pCurrCodecCtx, d.pPacket);
+		av_packet_unref(d.pPacket);
 
-		if (ret != 0) {
-			return ret;  // 送 packet 失败
-		}
-
-		// 继续 while，回去尝试 receive_frame
+		if (r != 0)
+			return r;
 	}
-
-	return AVERROR_UNKNOWN;  // 理论上不可能走到这里
+	return AVERROR_UNKNOWN;
 }
 
 int CPlayer::Seek(INT64 pos) noexcept
@@ -139,4 +191,91 @@ float CPlayer::GetFrameRate() const noexcept
 		(float)m_pVideoCodecCtx->framerate.den;
 	else
 		return 0.f;
+}
+
+void CPlayer::AudioWriteFrame(const AVFrame* pFrame) noexcept
+{
+	UINT32 cRequested = pFrame->nb_samples;
+	auto pBuf = AudioGetBuffer(cRequested);
+	switch (pFrame->format)
+	{
+	case AV_SAMPLE_FMT_U8:
+	{
+		auto p = (BYTE*)pFrame->data[0];
+		const auto pEnd = p + (cRequested * m_cAudioChannels);
+		for (; p < pEnd; ++p)
+			*pBuf++ = (float(*p) - 128.f) / 128.f;
+	}
+	break;
+	case AV_SAMPLE_FMT_S16:
+	{
+		auto p = (short*)pFrame->data[0];
+		const auto pEnd = p + (cRequested * m_cAudioChannels);
+		for (; p < pEnd; ++p)
+			*pBuf++ = (float(*p) / 32768.f);
+	}
+	break;
+	case AV_SAMPLE_FMT_S32:
+	{
+		auto p = (int*)pFrame->data[0];
+		const auto pEnd = p + (cRequested * m_cAudioChannels);
+		for (; p < pEnd; ++p)
+			*pBuf++ = (float(*p) / 2147483648.f);
+	}
+	break;
+	case AV_SAMPLE_FMT_FLT:
+		memcpy(pBuf, pFrame->data[0], cRequested * m_cAudioChannels * sizeof(float));
+		break;
+	case AV_SAMPLE_FMT_DBL:
+	{
+		auto p = (double*)pFrame->data[0];
+		const auto pEnd = p + (cRequested * m_cAudioChannels);
+		for (; p < pEnd; ++p)
+			*pBuf++ = float(*p);
+	}
+	break;
+	case AV_SAMPLE_FMT_U8P:
+	{
+		const auto p = (BYTE**)pFrame->data;
+		for (UINT32 i = 0; i < cRequested; ++i)
+			for (UINT32 j = 0; j < m_cAudioChannels; ++j)
+				*pBuf++ = (float(p[j][i]) - 128.f) / 128.f;
+	}
+	break;
+	case AV_SAMPLE_FMT_S16P:
+	{
+		const auto p = (short**)pFrame->data;
+		for (UINT32 i = 0; i < cRequested; ++i)
+			for (UINT32 j = 0; j < m_cAudioChannels; ++j)
+				*pBuf++ = (float(p[j][i]) / 32768.f);
+	}
+	break;
+	case AV_SAMPLE_FMT_S32P:
+	{
+		const auto p = (int**)pFrame->data;
+		for (UINT32 i = 0; i < cRequested; ++i)
+			for (UINT32 j = 0; j < m_cAudioChannels; ++j)
+				*pBuf++ = (float(p[j][i]) / 2147483648.f);
+	}
+	break;
+	case AV_SAMPLE_FMT_FLTP:
+	{
+		const auto p = (float**)pFrame->data;
+		for (UINT32 i = 0; i < cRequested; ++i)
+			for (UINT32 j = 0; j < m_cAudioChannels; ++j)
+				*pBuf++ = p[j][i];
+	}
+	break;
+	case AV_SAMPLE_FMT_DBLP:
+	{
+		const auto p = (double**)pFrame->data;
+		for (UINT32 i = 0; i < cRequested; ++i)
+			for (UINT32 j = 0; j < m_cAudioChannels; ++j)
+				*pBuf++ = float(p[j][i]);
+	}
+	break;
+	default:
+		break;
+	}
+	AudioReleaseBuffer(cRequested);
 }

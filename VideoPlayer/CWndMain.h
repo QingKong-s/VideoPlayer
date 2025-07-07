@@ -33,7 +33,8 @@ private:
 	ComPtr<ID3D11Device1> m_pDevice{};
 	ComPtr<ID3D11DeviceContext> m_pContext{};
 	EzDx::CTexture m_Texture{};
-	EzDx::CSampler m_Sampler{};
+	ComPtr<ID3D11SamplerState> m_pSamplerY{};
+	ComPtr<ID3D11SamplerState> m_pSamplerUV{};
 	EzDx::CShaderResourceView m_SrvY{};
 	EzDx::CShaderResourceView m_SrvUV{};
 	EzDx::CVSAndInputLayout m_VSAndIL{};

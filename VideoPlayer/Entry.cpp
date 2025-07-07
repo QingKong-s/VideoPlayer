@@ -5,6 +5,8 @@
 
 #include "eck\Env.h"
 
+#pragma comment(lib, "strmiids.lib")
+
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
 	_In_ PWSTR pszCmdLine, _In_ int nCmdShow)
 {
