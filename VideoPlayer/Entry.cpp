@@ -5,7 +5,6 @@
 
 #include "eck\Env.h"
 
-#pragma comment(lib, "strmiids.lib")
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
 	_In_ PWSTR pszCmdLine, _In_ int nCmdShow)
@@ -48,33 +47,22 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 	pWnd->Visible = TRUE;
 
 	MSG msg;
-	ULONGLONG ullTick = NtGetTickCount64();
-	eck::CWaitableTimer Timer{};
-	Timer.SetDueTimeAndPeriod(1000, 1000);
-	EckLoop()
+	while (GetMessageW(&msg, nullptr, 0, 0))
 	{
-		if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
+		if (!eck::PreTranslateMessage(msg))
 		{
-			if (msg.message == WM_QUIT)
-				break;
-			if (!eck::PreTranslateMessage(msg))
-			{
-				TranslateMessage(&msg);
-				DispatchMessageW(&msg);
-			}
-		}
-		else
-		{
-			WaitMessage();
-			const auto ullNow = NtGetTickCount64();
-			//pWnd->Tick(int(ullNow - ullTick));
-			ullTick = ullNow;
+			TranslateMessage(&msg);
+			DispatchMessageW(&msg);
 		}
 	}
 	delete pWnd;
 	delete App;
 	eck::ThreadUnInit();
 	eck::UnInit();
+#ifdef _DEBUG
+	if (eck::g_pDxgiDebug)
+		eck::g_pDxgiDebug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
+#endif
 	CoUninitialize();
 	return (int)msg.wParam;
 }

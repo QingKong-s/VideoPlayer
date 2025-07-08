@@ -50,7 +50,6 @@ float3 YuvToRgb(float3 yuv)
 {
 	yuv -= float3(0.062745f, 0.501960f, 0.501960f);
 	yuv = mul(yuv, MatYuvToRgb);
-
 	return saturate(yuv);
 }
 
@@ -109,9 +108,9 @@ void CWndMain::UpdateSampler()
 	Desc.MaxLOD = FLT_MAX;
 	Desc.MinLOD = -FLT_MAX;
 	Desc.BorderColor[0] = 0.0627f;
-	m_pDevice->CreateSamplerState(&Desc, &m_pSamplerY);
+	m_pDevice->CreateSamplerState(&Desc, m_pSamplerY.AddrOfClear());
 	Desc.BorderColor[0] = Desc.BorderColor[1] = 0.5020f;
-	m_pDevice->CreateSamplerState(&Desc, &m_pSamplerUV);
+	m_pDevice->CreateSamplerState(&Desc, m_pSamplerUV.AddrOfClear());
 }
 
 void CWndMain::UpdateTexture(const AVFrame* pFrame)

@@ -2,7 +2,7 @@
 #include "CPlayer.h"
 
 
-void CPlayer::InitCoreAudio() noexcept
+void CPlayer::AudiopInitCoreAudio() noexcept
 {
 	m_pAudioDeviceEnum.CreateInstance(CLSID_MMDeviceEnumerator);
 	m_pAudioDeviceEnum->GetDefaultAudioEndpoint(
@@ -29,7 +29,7 @@ void CPlayer::InitCoreAudio() noexcept
 	CoTaskMemFree(pwfx);
 }
 
-float* CPlayer::AudioGetBuffer(_Inout_ UINT32& cRequested) noexcept
+float* CPlayer::AudiopGetBuffer(_Inout_ UINT32& cRequested) noexcept
 {
 	UINT32 cPadding;
 	m_pAudioClient->GetBufferSize(&m_cAudioBuffer);
@@ -47,9 +47,21 @@ float* CPlayer::AudioGetBuffer(_Inout_ UINT32& cRequested) noexcept
 	return (float*)pBuffer;
 }
 
-void CPlayer::AudioReleaseBuffer(UINT32 cWritten) noexcept
+void CPlayer::AudiopReleaseBuffer(UINT32 cWritten) noexcept
 {
 	m_pAudioRenderClient->ReleaseBuffer(cWritten, 0);
+}
+
+CPlayer::~CPlayer()
+{
+	if (m_pFmtCtx)
+		avformat_close_input(&m_pFmtCtx);
+	if (m_pVideoCodecCtx)
+		avcodec_free_context(&m_pVideoCodecCtx);
+	if (m_pAudioCodecCtx)
+		avcodec_free_context(&m_pAudioCodecCtx);
+	if (m_pHwDeviceCtx)
+		av_buffer_unref(&m_pHwDeviceCtx);
 }
 
 int CPlayer::OpenFile(PCSTR pszPathU8) noexcept
@@ -132,7 +144,7 @@ int CPlayer::OpenFile(PCSTR pszPathU8) noexcept
 		break;
 		}
 	}
-	InitCoreAudio();
+	AudiopInitCoreAudio();
 	return 0;
 }
 
@@ -214,7 +226,7 @@ float CPlayer::GetFrameRate() const noexcept
 void CPlayer::AudioWriteFrame(const AVFrame* pFrame) noexcept
 {
 	UINT32 cRequested = pFrame->nb_samples;
-	auto pBuf = AudioGetBuffer(cRequested);
+	auto pBuf = AudiopGetBuffer(cRequested);
 	switch (pFrame->format)
 	{
 	case AV_SAMPLE_FMT_U8:
@@ -295,5 +307,5 @@ void CPlayer::AudioWriteFrame(const AVFrame* pFrame) noexcept
 	default:
 		break;
 	}
-	AudioReleaseBuffer(cRequested);
+	AudiopReleaseBuffer(cRequested);
 }

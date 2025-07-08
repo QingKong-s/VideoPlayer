@@ -25,6 +25,11 @@ public:
 				av_packet_unref(pPacket);
 				av_packet_free(&pPacket);
 			}
+			if (pFrame)
+			{
+				av_frame_unref(pFrame);
+				av_frame_free(&pFrame);
+			}
 		}
 
 		void UnRef()
@@ -54,13 +59,16 @@ private:
 	UINT32 m_cAudioBuffer{};
 	constexpr static int m_cAudioChannels = 2;
 
-	void InitCoreAudio() noexcept;
+	void AudiopInitCoreAudio() noexcept;
 
 	// 返回[-1, 1]归一化交错浮点缓冲区，返回时cRequested被修改为最大可写入长度
-	float* AudioGetBuffer(_Inout_ UINT32& cRequested) noexcept;
+	float* AudiopGetBuffer(_Inout_ UINT32& cRequested) noexcept;
 
-	void AudioReleaseBuffer(UINT32 cWritten) noexcept;
+	void AudiopReleaseBuffer(UINT32 cWritten) noexcept;
 public:
+	ECK_DISABLE_COPY_MOVE_DEF_CONS(CPlayer);
+	~CPlayer();
+
 	void InitD3D(ID3D11Device* pDevice, ID3D11DeviceContext* pContext)
 	{
 		m_pD3DDevice = pDevice;
@@ -82,7 +90,7 @@ public:
 
 	float GetFrameRate() const noexcept;
 
-	float GetPts(const RfData& d)
+	float GetPts(const RfData& d) const noexcept
 	{
 		double framePts = 0;
 		if (d.pFrame->pts != AV_NOPTS_VALUE)
