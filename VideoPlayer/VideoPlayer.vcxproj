@@ -197,6 +197,7 @@
   <ItemGroup>
     <ClInclude Include="CApp.h" />
     <ClInclude Include="CPlayer.h" />
+    <ClInclude Include="CVePlayList.h" />
     <ClInclude Include="CVeRoot.h" />
     <ClInclude Include="CWndMain.h" />
     <ClInclude Include="pch.h" />
@@ -207,6 +208,7 @@
   <ItemGroup>
     <ClCompile Include="CApp.cpp" />
     <ClCompile Include="CPlayer.cpp" />
+    <ClCompile Include="CVePlayList.cpp" />
     <ClCompile Include="CVeRoot.cpp" />
     <ClCompile Include="CWndMain.cpp" />
     <ClCompile Include="Entry.cpp" />

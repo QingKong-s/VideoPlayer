@@ -20,8 +20,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 		return 0;
 	}
 
+	eck::INITPARAM ip{};
+	ip.uD3dCreateFlags |= D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
 	DWORD dwErr;
-	if (const auto iRetInit = eck::Init(hInstance, nullptr, &dwErr);
+	if (const auto iRetInit = eck::Init(hInstance, &ip, &dwErr);
 		iRetInit != eck::InitStatus::Ok)
 	{
 		EckDbgPrintFormatMessage(dwErr);

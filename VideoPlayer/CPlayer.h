@@ -34,6 +34,9 @@ public:
 		}
 	};
 private:
+	ComPtr<ID3D11Device> m_pD3DDevice{};
+	ComPtr<ID3D11DeviceContext> m_pD3DContext{};
+
 	AVFormatContext* m_pFmtCtx{};
 
 	AVStream* m_pVideoStream{};
@@ -58,6 +61,17 @@ private:
 
 	void AudioReleaseBuffer(UINT32 cWritten) noexcept;
 public:
+	void InitD3D(ID3D11Device* pDevice, ID3D11DeviceContext* pContext)
+	{
+		m_pD3DDevice = pDevice;
+		m_pD3DContext = pContext;
+		if (m_pHwDeviceCtx)
+		{
+			av_buffer_unref(&m_pHwDeviceCtx);
+			m_pHwDeviceCtx = nullptr;
+		}
+	}
+
 	int OpenFile(PCSTR pszPathU8) noexcept;
 
 	int ReadFrame(_Inout_ RfData& d) noexcept;

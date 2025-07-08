@@ -80,8 +80,26 @@ int CPlayer::OpenFile(PCSTR pszPathU8) noexcept
 				return AVERROR(ENOMEM);
 			avcodec_parameters_to_context(m_pVideoCodecCtx, pStream->codecpar);
 			if (!m_pHwDeviceCtx)
-				av_hwdevice_ctx_create(&m_pHwDeviceCtx,
-					AV_HWDEVICE_TYPE_D3D11VA, nullptr, nullptr, 0);
+			{
+				AVBufferRef* pHwCtx = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
+				if (!pHwCtx)
+					return AVERROR(ENOMEM);
+				const auto pCtxD3D = (AVD3D11VADeviceContext*)
+					((AVHWDeviceContext*)pHwCtx->data)->hwctx;
+				pCtxD3D->device = m_pD3DDevice.Get();
+				pCtxD3D->device_context = m_pD3DContext.Get();
+				pCtxD3D->lock = nullptr;
+				pCtxD3D->unlock = nullptr;
+				m_pD3DDevice->AddRef();
+				m_pD3DContext->AddRef();
+
+				if (r = av_hwdevice_ctx_init(pHwCtx))
+				{
+					av_buffer_unref(&pHwCtx);
+					return r;
+				}
+				m_pHwDeviceCtx = pHwCtx;
+			}
 			m_pVideoCodecCtx->hw_device_ctx = av_buffer_ref(m_pHwDeviceCtx);
 			m_pVideoCodecCtx->get_format = [](AVCodecContext*, const AVPixelFormat* pPixFmts)
 				{

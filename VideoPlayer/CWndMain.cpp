@@ -49,7 +49,7 @@ struct PSIn
 float3 YuvToRgb(float3 yuv)
 {
 	yuv -= float3(0.062745f, 0.501960f, 0.501960f);
-	yuv = mul(yuv, YUVtoRGBCoeffMatrix);
+	yuv = mul(yuv, MatYuvToRgb);
 
 	return saturate(yuv);
 }
@@ -58,8 +58,7 @@ float4 main(PSIn input) : SV_TARGET
 {
 	float y = gTexY.Sample(gSamplerY, input.uvPos);
 	float2 uv = gTexUV.Sample(gSamplerUV, input.uvPos);
-	float3 rgb = YuvToRgb(float3(y, uv));
-	return float4(rgb, 1);
+	return float4(YuvToRgb(float3(y, uv)), 1);
 }
 )___" };
 
@@ -70,6 +69,8 @@ LRESULT CWndMain::OnCreate()
 
 	eck::g_pD3d11Device->QueryInterface(IID_PPV_ARGS(&m_pDevice));
 	m_pDevice->GetImmediateContext(&m_pContext);
+
+	m_Player.InitD3D(m_pDevice.Get(), m_pContext.Get());
 	// 编译着色器
 	constexpr D3D11_INPUT_ELEMENT_DESC Layout[]
 	{
@@ -79,9 +80,6 @@ LRESULT CWndMain::OnCreate()
 	m_VSAndIL.Create(VS.data(), (int)VS.size(), "main", Layout, ARRAYSIZE(Layout));
 	m_PS.Create(PSBlt.data(), (int)PSBlt.size(), "main");
 	// 顶点缓冲
-
-	m_Vb.Create(sizeof(Vertices), D3D11_BIND_VERTEX_BUFFER,
-		D3D11_USAGE_IMMUTABLE, 0, 0, Vertices);
 	m_VbVideoTex.Create(sizeof(Vertices), D3D11_BIND_VERTEX_BUFFER,
 		D3D11_USAGE_DYNAMIC, D3D11_CPU_ACCESS_WRITE);
 
@@ -91,7 +89,7 @@ LRESULT CWndMain::OnCreate()
 
 	for (auto e : Test)
 		PlAdd(e);
-	Play(6);
+	Play(8);
 
 	m_RootElem.Create(nullptr, Dui::DES_VISIBLE, 0,
 		0, 0, 0, 0, nullptr, this);
@@ -122,10 +120,7 @@ void CWndMain::UpdateTexture(const AVFrame* pFrame)
 	((ID3D11Texture2D*)pFrame->data[0])->GetDesc(&Desc);
 
 	m_Texture.Create(Desc.Width, Desc.Height, Desc.Format,
-		D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, D3D11_RESOURCE_MISC_SHARED);
-	ComPtr<IDXGIResource> pDxgiRes;
-	m_Texture->QueryInterface(&pDxgiRes);
-	pDxgiRes->GetSharedHandle(&m_hSharedRes);
+		D3D11_BIND_SHADER_RESOURCE);
 	constexpr DXGI_FORMAT YFormat[]
 	{
 		DXGI_FORMAT_R8_UNORM,DXGI_FORMAT_R16_UNORM,DXGI_FORMAT_R16_UNORM
@@ -152,10 +147,7 @@ void CWndMain::CopyTexture(ID3D11Texture2D* pTexSrc, UINT idxSubRes)
 	pTexSrc->GetDevice(&pDevice);
 	ComPtr<ID3D11DeviceContext> pContext;
 	pDevice->GetImmediateContext(&pContext);
-	ComPtr<ID3D11Texture2D> pDstTex;
-	pDevice->OpenSharedResource(m_hSharedRes, IID_PPV_ARGS(&pDstTex));
-
-	pContext->CopySubresourceRegion(pDstTex.Get(), 0, 0, 0, 0,
+	pContext->CopySubresourceRegion(m_Texture.Get(), 0, 0, 0, 0,
 		pTexSrc, idxSubRes, nullptr);
 	pContext->Flush();
 }
@@ -255,20 +247,22 @@ LRESULT CWndMain::OnRenderEvent(UINT uMsg, Dui::RENDER_EVENT& e)
 	{
 	case Dui::RE_PRERENDER:
 	{
+		RECT rcClient;
+		const RECT* prcDirty;
+		if (e.PreRender.prcDirtyPhy)
+			prcDirty = e.PreRender.prcDirtyPhy;
+		else
+		{
+			rcClient = { 0,0,GetClientWidth(),GetClientHeight() };
+			prcDirty = &rcClient;
+		}
+
 		const auto& f = e.PreRender;
 		D3D11_VIEWPORT Viewport;
 		Viewport.TopLeftX = (float)f.ptOffsetPhy.x;
 		Viewport.TopLeftY = (float)f.ptOffsetPhy.y;
-		if (f.prcDirtyPhy)
-		{
-			Viewport.Width = float(f.prcDirtyPhy->right - f.prcDirtyPhy->left);
-			Viewport.Height = float(f.prcDirtyPhy->bottom - f.prcDirtyPhy->top);
-		}
-		else
-		{
-			Viewport.Width = (float)GetClientWidth();
-			Viewport.Height = (float)GetClientHeight();
-		}
+		Viewport.Width = float(prcDirty->right - prcDirty->left);
+		Viewport.Height = float(prcDirty->bottom - prcDirty->top);
 		Viewport.MinDepth = 0.f;
 		Viewport.MaxDepth = 1.f;
 
@@ -278,21 +272,19 @@ LRESULT CWndMain::OnRenderEvent(UINT uMsg, Dui::RENDER_EVENT& e)
 		Rtv.Create(pDstTex.Get());
 
 		m_pContext->OMSetRenderTargets(1, &Rtv.pRtv, nullptr);
-		constexpr float ClearColor[4]{};
-		//m_pContext->ClearRenderTargetView(Rtv.Get(), ClearColor);
 		m_pContext->RSSetViewports(1, &Viewport);
 
 		m_pContext->IASetInputLayout(m_VSAndIL.GetInputLayout());
-		m_pContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		m_pContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 		D3D11_MAPPED_SUBRESOURCE MappedRes{};
 		m_pContext->Map(m_VbVideoTex.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedRes);
 		const auto pVertices = (VERTEX*)MappedRes.pData;
 		memcpy(pVertices, Vertices, sizeof(Vertices));
 		{
-			const auto lD = Viewport.TopLeftX;
-			const auto tD = Viewport.TopLeftY;
-			const auto rD = Viewport.TopLeftX + Viewport.Width;
-			const auto bD = Viewport.TopLeftY + Viewport.Height;
+			const auto lD = prcDirty->left;
+			const auto tD = prcDirty->top;
+			const auto rD = prcDirty->right;
+			const auto bD = prcDirty->bottom;
 			const auto xV = m_rcVideo.left;
 			const auto yV = m_rcVideo.top;
 			const auto wV = m_rcVideo.right - m_rcVideo.left;
@@ -300,9 +292,7 @@ LRESULT CWndMain::OnRenderEvent(UINT uMsg, Dui::RENDER_EVENT& e)
 			pVertices[0].uv = { (lD - xV) / wV,(tD - yV) / hV };// 左上
 			pVertices[1].uv = { (rD - xV) / wV,(tD - yV) / hV };// 右上
 			pVertices[2].uv = { (lD - xV) / wV,(bD - yV) / hV };// 左下
-			pVertices[3].uv = pVertices[2].uv;// 左下
-			pVertices[4].uv = pVertices[1].uv;// 右上
-			pVertices[5].uv = { (rD - xV) / wV,(bD - yV) / hV };// 右下
+			pVertices[3].uv = { (rD - xV) / wV,(bD - yV) / hV };// 右下
 		}
 		m_pContext->Unmap(m_VbVideoTex.Get(), 0);
 
@@ -317,7 +307,7 @@ LRESULT CWndMain::OnRenderEvent(UINT uMsg, Dui::RENDER_EVENT& e)
 		ID3D11ShaderResourceView* const pSrv[]{ m_SrvY.Get(), m_SrvUV.Get() };
 		m_pContext->PSSetShaderResources(0, ARRAYSIZE(pSrv), pSrv);
 
-		m_pContext->Draw(6, 0);
+		m_pContext->Draw(4, 0);
 	}
 	return Dui::RER_NO_ERASE;
 	}
@@ -373,7 +363,6 @@ void CWndMain::Tick(int iMs)
 			}
 			CopyTexture(pTex, PtrToUint(m_RfData.pFrame->data[1]));
 			Redraw();
-			++m_cFramePresented;
 		}
 		break;
 		case AVMEDIA_TYPE_AUDIO:
