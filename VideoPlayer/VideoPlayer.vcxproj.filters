@@ -19,6 +19,9 @@
     <Filter Include="pch">
       <UniqueIdentifier>{fe295838-cf38-4b9f-a8b8-0a8715b12b26}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Ve">
+      <UniqueIdentifier>{a4524bed-1a72-4455-91b2-0f873cba1683}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="targetver.h">
@@ -39,14 +42,14 @@
     <ClInclude Include="CPlayer.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="CVeRoot.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="Test.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="CVePlayList.h">
-      <Filter>头文件</Filter>
+      <Filter>Ve</Filter>
+    </ClInclude>
+    <ClInclude Include="CVeRoot.h">
+      <Filter>Ve</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -68,11 +71,11 @@
     <ClCompile Include="CPlayer.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="CVeRoot.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
     <ClCompile Include="CVePlayList.cpp">
-      <Filter>源文件</Filter>
+      <Filter>Ve</Filter>
+    </ClCompile>
+    <ClCompile Include="CVeRoot.cpp">
+      <Filter>Ve</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

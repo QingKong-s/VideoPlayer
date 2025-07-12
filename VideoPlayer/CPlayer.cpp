@@ -43,7 +43,7 @@ float* CPlayer::AudiopGetBuffer(_Inout_ UINT32& cRequested) noexcept
 			cRequested = m_cAudioBuffer;
 	}
 	BYTE* pBuffer;
-	auto hr = m_pAudioRenderClient->GetBuffer(cRequested, &pBuffer);
+	m_pAudioRenderClient->GetBuffer(cRequested, &pBuffer);
 	return (float*)pBuffer;
 }
 

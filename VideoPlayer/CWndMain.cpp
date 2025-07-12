@@ -7,7 +7,12 @@ enum : int
 {
 	CyTrackSize = 12,
 	CyTrackBar = 26,
+	CxPlayList = 300,
+	CxListContMargin = 10,
+	CyListContMargin = 10,
 };
+
+constexpr float AnDurList = 400;
 
 constexpr std::string_view VS
 { R"___(
@@ -35,7 +40,7 @@ SamplerState gSamplerUV : register(s1);
 
 static const float3x3 MatYuvToRgb =
 {
-	1.164383f, 1.164383f, 1.164383f,
+	1.164383f,  1.164383f, 1.164383f,
 	0.000000f, -0.391762f, 2.017232f,
 	1.596027f, -0.812968f, 0.000000f
 };
@@ -64,7 +69,14 @@ float4 main(PSIn input) : SV_TARGET
 
 LRESULT CWndMain::OnCreate()
 {
+	m_pCompAnList = new Dui::CCompositor2DAffineTransform{};
+	BlurInit();
+	//BlurSetDeviation(0);
 	RegisterTimeLine(this);
+
+	eck::CDWriteFontFactory DwTfFactory{};
+	DwTfFactory.NewFont(m_pTextFormat.RefOf(),
+		eck::Align::Near, eck::Align::Center, -1.f, 400, TRUE);;
 
 	eck::g_pD3d11Device->QueryInterface(IID_PPV_ARGS(&m_pDevice));
 	m_pDevice->GetImmediateContext(&m_pContext);
@@ -88,7 +100,13 @@ LRESULT CWndMain::OnCreate()
 
 	for (auto e : Test)
 		PlAdd(e);
-	Play(8);
+	eck::CRefStrW rs{};
+	EckCounter(20, i)
+	{
+		rs.Format(L"测试测试项目 %d", i);
+		PlAdd(rs.ToStringView());
+	}
+	Play(4);
 
 	m_RootElem.Create(nullptr, Dui::DES_VISIBLE, 0,
 		0, 0, 0, 0, nullptr, this);
@@ -96,6 +114,11 @@ LRESULT CWndMain::OnCreate()
 	m_TB.Create(nullptr, Dui::DES_VISIBLE | Dui::DES_NOTIFY_TO_WND, 0,
 		0, 0, 0, 0, pRoot);
 	m_TB.SetTrackSize(CyTrackSize);
+
+	m_ListContainer.Create(nullptr, Dui::DES_VISIBLE | Dui::DES_BLURBKG, 0,
+		0, 0, 0, 0, pRoot);
+	m_ListContainer.SetTextFormat(m_pTextFormat.Get());
+
 	return 0;
 }
 
@@ -169,8 +192,8 @@ int CWndMain::PlAdd(std::wstring_view svPath, int idxInsert)
 	const auto posFileSpec = e.rsPath.PazFindFileSpec();
 	if (posFileSpec >= 0)
 	{
-		e.rsName.DupString(e.rsPath.Data() + posFileSpec,
-			e.rsPath.Size() - posFileSpec);
+		e.rsName.DupString(e.rsPath.Data() + posFileSpec + 1,
+			e.rsPath.Size() - posFileSpec - 1);
 		e.rsName.PazRemoveExtension();
 	}
 	else
@@ -198,6 +221,47 @@ void CWndMain::Stop()
 {
 }
 
+void CWndMain::AnListBegin()
+{
+	ECK_DUILOCKWND;
+	m_ListContainer.SetCompositor(m_pCompAnList);
+	ECKBOOLNOT(m_bListShow);
+	if (m_bListShow)
+	{
+		if (!m_bAnList)
+			m_msAnList = 0.f;
+		m_ListContainer.SetVisible(TRUE);
+	}
+	else
+		if (!m_bAnList)
+			m_msAnList = AnDurList;
+	m_bAnList = TRUE;
+	RePosList();
+}
+
+void CWndMain::AnListEnd()
+{
+	ECK_DUILOCKWND;
+	m_ListContainer.SetCompositor(nullptr);
+	m_bAnList = FALSE;
+	RePosList();
+	if (!m_bListShow)
+		m_ListContainer.SetVisible(FALSE);
+}
+
+void CWndMain::RePosList()
+{
+	RECT rc;
+	if (m_bAnList || !m_bListShow)
+		rc.left = GetClientWidthLog();
+	else
+		rc.left = GetClientWidthLog() - CxPlayList - CxListContMargin;
+	rc.top = CyListContMargin;
+	rc.right = rc.left + CxPlayList;
+	rc.bottom = GetClientHeightLog() - CyTrackBar - CyListContMargin;
+	m_ListContainer.SetRect(rc);
+}
+
 LRESULT CWndMain::OnMsg(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch (uMsg)
@@ -210,7 +274,15 @@ LRESULT CWndMain::OnMsg(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		const auto cy = GetClientHeightLog();
 		m_RootElem.SetSize(cx, cy);
 		m_TB.SetRect({ 0,cy - CyTrackBar,cx,cy });
+		RePosList();
 		return lResult;
+	}
+	break;
+
+	case WM_LBUTTONDBLCLK:
+	case WM_LBUTTONDOWN:
+	{
+		AnListBegin();
 	}
 	break;
 
@@ -280,18 +352,16 @@ LRESULT CWndMain::OnRenderEvent(UINT uMsg, Dui::RENDER_EVENT& e)
 		const auto pVertices = (VERTEX*)MappedRes.pData;
 		memcpy(pVertices, Vertices, sizeof(Vertices));
 		{
-			const auto lD = prcDirty->left;
-			const auto tD = prcDirty->top;
-			const auto rD = prcDirty->right;
-			const auto bD = prcDirty->bottom;
-			const auto xV = m_rcVideo.left;
-			const auto yV = m_rcVideo.top;
-			const auto wV = m_rcVideo.right - m_rcVideo.left;
-			const auto hV = m_rcVideo.bottom - m_rcVideo.top;
-			pVertices[0].uv = { (lD - xV) / wV,(tD - yV) / hV };// 左上
-			pVertices[1].uv = { (rD - xV) / wV,(tD - yV) / hV };// 右上
-			pVertices[2].uv = { (lD - xV) / wV,(bD - yV) / hV };// 左下
-			pVertices[3].uv = { (rD - xV) / wV,(bD - yV) / hV };// 右下
+			const float wV = m_rcVideo.right - m_rcVideo.left;
+			const float hV = m_rcVideo.bottom - m_rcVideo.top;
+			const float x0 = (prcDirty->left - m_rcVideo.left) / wV;
+			const float y0 = (prcDirty->top - m_rcVideo.top) / hV;
+			const float x1 = (prcDirty->right - m_rcVideo.left) / wV;
+			const float y1 = (prcDirty->bottom - m_rcVideo.top) / hV;
+			pVertices[0].uv = { x0,y0 };// 左上
+			pVertices[1].uv = { x1,y0 };// 右上
+			pVertices[2].uv = { x0,y1 };// 左下
+			pVertices[3].uv = { x1,y1 };// 右下
 		}
 		m_pContext->Unmap(m_VbVideoTex.Get(), 0);
 
@@ -303,8 +373,7 @@ LRESULT CWndMain::OnRenderEvent(UINT uMsg, Dui::RENDER_EVENT& e)
 
 		m_pContext->PSSetShader(m_PS.Get(), nullptr, 0);
 		m_pContext->PSSetSamplers(0, 2, &m_pSamplerY);
-		ID3D11ShaderResourceView* const pSrv[]{ m_SrvY.Get(), m_SrvUV.Get() };
-		m_pContext->PSSetShaderResources(0, ARRAYSIZE(pSrv), pSrv);
+		m_pContext->PSSetShaderResources(0, 2, &m_SrvY.pSrv);
 
 		m_pContext->Draw(4, 0);
 	}
@@ -332,7 +401,25 @@ void CWndMain::Tick(int iMs)
 {
 	if (!iMs)
 		return;
-	const float fFrameInterval = 1000.f / m_fFrameRate; // 每帧间隔 ms
+	if (m_bAnList)
+	{
+		if (m_bListShow)
+			m_msAnList += iMs;
+		else
+			m_msAnList -= iMs;
+		const auto k = eck::Easing::OutCubic(m_msAnList, 0.f, 1.f, AnDurList);
+		const auto dx = -(CxPlayList + CxListContMargin) * k;
+		const auto fScale = 0.8f + 0.2f * k;
+		const auto yCenter = m_ListContainer.GetHeightF() / 2.f;
+		m_pCompAnList->Mat =
+			D2D1::Matrix3x2F::Scale(fScale, fScale, D2D1::Point2F(0.f, yCenter)) *
+			D2D1::Matrix3x2F::Translation(dx, 0.f);
+		m_pCompAnList->InverseMatrix();
+		m_ListContainer.CompReCalcCompositedRect();
+		if (k > 1.f || k < 0.f)
+			AnListEnd();
+	}
+	const float fFrameInterval = 1000.f / m_fFrameRate;// 每帧间隔，ms
 	m_msCount += iMs;
 
 	while (m_msCount >= fFrameInterval)

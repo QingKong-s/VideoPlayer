@@ -8,14 +8,13 @@ class CWndMain : public Dui::CDuiWnd, public eck::CFixedTimeLine
 {
 	friend class CVePlayList;
 private:
-
-
 	struct PLAY_ITEM
 	{
 		eck::CRefStrW rsPath;
 		eck::CRefStrA rsPathU8;
 		eck::CRefStrW rsName;
 	};
+
 	struct alignas(16) VERTEX
 	{
 		Dx::XMFLOAT4 pos;
@@ -33,16 +32,19 @@ private:
 	ComPtr<ID3D11Device> m_pDevice{};
 	ComPtr<ID3D11DeviceContext> m_pContext{};
 	EzDx::CTexture m_Texture{};
+	//---不要改变顺序---//
 	ComPtr<ID3D11SamplerState> m_pSamplerY{};
 	ComPtr<ID3D11SamplerState> m_pSamplerUV{};
 	EzDx::CShaderResourceView m_SrvY{};
 	EzDx::CShaderResourceView m_SrvUV{};
+	//---          ---//
 	EzDx::CVSAndInputLayout m_VSAndIL{};
 	EzDx::CShader<EzDx::PS_T> m_PS{};
 	EzDx::CBuffer m_VbVideoTex{};
-	float m_fFrameRate{};
 
+	float m_fFrameRate{};
 	int m_msCount{};
+	D2D1_RECT_F m_rcVideo{};
 
 	CPlayer m_Player{};
 	CPlayer::RfData m_RfData{};
@@ -54,8 +56,12 @@ private:
 	Dui::CTrackBar m_TB{};
 	CVePlayList m_ListContainer{ *this };
 
-	D2D1_RECT_F m_rcVideo{};
+	Dui::CCompositor2DAffineTransform* m_pCompAnList{};
+	float m_msAnList{};
+	BITBOOL m_bAnList : 1{};
+	BITBOOL m_bListShow : 1{};
 
+	ComPtr<IDWriteTextFormat> m_pTextFormat{};
 
 	LRESULT OnCreate();
 
@@ -72,6 +78,12 @@ private:
 	void Play(int idx);
 
 	void Stop();
+
+	void AnListBegin();
+
+	void AnListEnd();
+
+	void RePosList();
 public:
 	LRESULT OnMsg(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) override;
 

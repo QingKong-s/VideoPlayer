@@ -2,10 +2,13 @@
 #include "eck\PchInc.h"
 #include "eck\SystemHelper.h"
 #include "eck\CCommDlg.h"
-#include "eck\CDuiTrackBar.h"
 #include "eck\EzDx.h"
 #include "eck\MathHelper.h"
-#include "eck\CDuiList.h"
+#include "eck\CDWriteFontFactory.h"
+#include "eck\CDuiTrackBar.h"
+#include "eck\CDuiTabList.h"
+#include "eck\CDuiButton.h"
+#include "eck\DuiStdCompositor.h"
 
 EXTERN_C_START
 #pragma warning(push)

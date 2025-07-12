@@ -42,6 +42,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 	const auto pt = eck::CalcCenterWndPos(nullptr, size.cx, size.cy, FALSE);
 	pWnd->SetPresentMode(Dui::PresentMode::DCompositionSurface);
 	pWnd->SetUserDpi(iDpi);
+	pWnd->SetTransparent(TRUE);
 	pWnd->Create(L"示例Win32程序", WS_OVERLAPPEDWINDOW, 0,
 		pt.x, pt.y, size.cx, size.cy, nullptr, 0);
 	pWnd->Visible = TRUE;
